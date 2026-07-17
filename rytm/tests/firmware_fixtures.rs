@@ -32,9 +32,6 @@ fn connected_device_fixtures_validate_and_preserve_every_byte() {
 fn typed_objects_decode_and_reencode_without_unknown_byte_loss() {
     let mut failures = Vec::new();
     for (file_name, object_type, _) in FIXTURES {
-        if object_type == SysexType::Song {
-            continue;
-        }
         let bytes = fixture(file_name);
         let mut project = RytmProject::try_default().unwrap();
         project.update_from_sysex_response(&bytes).unwrap();
@@ -44,7 +41,7 @@ fn typed_objects_decode_and_reencode_without_unknown_byte_loss() {
             SysexType::Sound => project.work_buffer().sounds()[0].as_sysex().unwrap(),
             SysexType::Global => project.work_buffer().global().as_sysex().unwrap(),
             SysexType::Settings => project.settings().as_sysex().unwrap(),
-            SysexType::Song => unreachable!(),
+            SysexType::Song => project.work_buffer().song().as_sysex().unwrap(),
         };
         if encoded != bytes {
             failures.push(format!(
@@ -143,15 +140,46 @@ fn macro_definition_fixture_preserves_unrelated_kit_bytes() {
 }
 
 #[test]
-fn song_remains_lossless_before_a_typed_model_exists() {
+fn song_fixture_decodes_as_typed_work_buffer_state() {
     let bytes = fixture("song-work-buffer.syx");
     let raw = RawSysexObject::from_sysex(&bytes).unwrap();
     assert_eq!(raw.metadata().object_type().unwrap(), SysexType::Song);
     assert_eq!(raw.as_sysex().unwrap(), bytes);
 
     let mut project = RytmProject::try_default().unwrap();
-    let error = project.update_from_sysex_response(&bytes).unwrap_err();
-    assert!(error.to_string().contains("Song"));
+    project.update_from_sysex_response(&bytes).unwrap();
+    let song = project.work_buffer().song();
+    assert!(song.is_work_buffer());
+    assert!(song.rows().unwrap().is_empty());
+    assert_eq!(song.as_sysex().unwrap(), bytes);
+}
+
+#[test]
+fn typed_song_matches_hardware_write_readback_and_rollback() {
+    let baseline = fixture("song-certification-baseline.syx");
+    let defined = fixture("song-certification-defined.syx");
+    let restored = fixture("song-certification-restored.syx");
+    assert_eq!(restored, baseline);
+
+    let song = Song::from_sysex(&defined).unwrap();
+    assert_eq!(song.name(), "AGENT SONG");
+    let rows = song.rows().unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].repeats(), 2);
+    assert_eq!(rows[0].patterns().len(), 2);
+    assert_eq!(rows[0].patterns()[0].pattern(), 0);
+    assert_eq!(rows[0].patterns()[1].pattern(), 1);
+    assert_eq!(rows[0].patterns()[1].muted_tracks_mask(), 1);
+    assert_eq!(rows[1].repeats(), 1);
+    assert_eq!(rows[1].patterns()[0].pattern(), 16);
+    assert_eq!(rows[1].patterns()[0].muted_tracks_mask(), 2);
+    assert_eq!(song.as_sysex().unwrap(), defined);
+
+    let report: Value = serde_json::from_slice(&fixture("song-certification.json")).unwrap();
+    assert_eq!(report["schema"], "rytm-rs-song-certification.v1");
+    assert_eq!(report["status"], "write-readback-rollback-verified");
+    assert_eq!(report["observedFirmware"], "1.72");
+    assert_eq!(report["baselineFingerprint"], report["restoredFingerprint"]);
 }
 
 #[test]

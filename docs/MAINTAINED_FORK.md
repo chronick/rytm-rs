@@ -51,7 +51,7 @@ cargo test -p rytm-rs --test firmware_fixtures
 ```
 
 Omit `--observed-firmware` when the version has not been verified on the device. Captures contain
-Pattern, Kit, Sound, Global, Settings, and raw Song objects only. They must never include personal
+Pattern, Kit, Sound, Global, Settings, and Song objects only. They must never include personal
 sample audio, project backups, or unrelated user data.
 
 Scene and Performance codec certification is query-only unless --execute is present:
@@ -68,6 +68,21 @@ Scene and Performance codec certification is query-only unless --execute is pres
 The execute path snapshots the work-buffer Kit, writes controlled Scene and Performance
 definitions, verifies typed readback, and restores the exact baseline. It reports an emergency
 rollback failure separately. Definition writes never activate a Scene.
+
+Song codec certification is also query-only unless `--execute` is present:
+
+    cargo run -p rytm-rs --example certify_song_codec -- \
+      rytm/tests/fixtures/mkii-connected-YYYY-MM-DD \
+      --observed-firmware <version>
+
+    cargo run -p rytm-rs --example certify_song_codec -- \
+      rytm/tests/fixtures/mkii-connected-YYYY-MM-DD \
+      --observed-firmware <version> \
+      --execute
+
+The execute path snapshots the work-buffer Song, writes controlled rows, a pattern chain,
+repeats, and song mutes, verifies typed readback, and restores the exact baseline. See
+[`SONG_CODEC.md`](SONG_CODEC.md) for the supported fields and preserved unknown regions.
 
 Run before publishing a fork revision:
 

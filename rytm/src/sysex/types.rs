@@ -180,6 +180,27 @@ impl SysexMeta {
         }
     }
 
+    #[parameter_range(range = "song_index:0..=15")]
+    pub fn try_default_for_song(song_index: usize, dev_id: Option<u8>) -> Result<Self, RytmError> {
+        Ok(Self {
+            container_version: Self::SYSEX_META_CONTAINER_VERSION,
+            dev_id: dev_id.unwrap_or(0),
+            obj_type: SysexType::Song.into(),
+            obj_nr: song_index as u16,
+            ..Default::default()
+        })
+    }
+
+    pub fn default_for_song_in_work_buffer(dev_id: Option<u8>) -> Self {
+        Self {
+            container_version: Self::SYSEX_META_CONTAINER_VERSION,
+            dev_id: dev_id.unwrap_or(0),
+            obj_type: SysexType::Song.into(),
+            obj_nr: 0b1000_0000,
+            ..Default::default()
+        }
+    }
+
     #[parameter_range(range = "pattern_index:0..=127")]
     pub fn try_default_for_pattern(
         pattern_index: usize,

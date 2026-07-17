@@ -4,6 +4,7 @@ pub const PATTERN_MAX_COUNT: usize = 128;
 pub const POOL_SOUND_MAX_COUNT: usize = 128;
 pub const KIT_MAX_COUNT: usize = 128;
 pub const GLOBAL_MAX_COUNT: usize = 4;
+pub const SONG_MAX_COUNT: usize = 16;
 pub const TRACK_MAX_COUNT: usize = 12;
 pub const VOICE_MAX_COUNT: usize = 8;
 

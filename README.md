@@ -28,7 +28,8 @@ It is thoroughly [documented](https://docs.rs/rytm-rs/latest/rytm_rs/#), to get 
 - The Rytm device project defaults are represented in all the struct `Default` implementations.
 - Sysex encoding and decoding is completely abstracted away. Update the project with a single method call.
 - Convert parts of the project to sysex with one method call and send it to the device with your choice of transport.
-- Separate query types provided for `Pattern`, `Kit`, `Sound`, `Settings` and `Global` types which covers the entire Rytm project parameters except songs.
+- Separate query types are provided for `Pattern`, `Kit`, `Sound`, `Settings`, `Global`, and `Song`.
+- Songs have a lossless typed model for names, rows, pattern chains, repeats, and per-position track mutes. Unidentified bytes are preserved and unsupported arranger-style fields remain explicit capability gaps.
 - Different methods provided for setting, getting, clearing parameter locks exhaustively and available in `Trig` struct.
 - All 34 machine types are represented including parameter lock setters getters and clearers.
 - All getters and setters use the actual range of values on the device not the internal ranges which are used in the sysex protocol.
