@@ -1,0 +1,173 @@
+use rytm_rs::prelude::*;
+use serde_json::Value;
+use std::{fs, path::PathBuf};
+
+const FIXTURE_DIRECTORY: &str = "tests/fixtures/mkii-connected-2026-07-17";
+const FIXTURES: [(&str, SysexType, usize); 6] = [
+    ("pattern-work-buffer.syx", SysexType::Pattern, 14_988),
+    ("kit-work-buffer.syx", SysexType::Kit, 2_998),
+    ("sound-work-buffer-bd.syx", SysexType::Sound, 201),
+    ("global-work-buffer.syx", SysexType::Global, 107),
+    ("settings.syx", SysexType::Settings, 2_401),
+    ("song-work-buffer.syx", SysexType::Song, 1_506),
+];
+
+#[test]
+fn connected_device_fixtures_validate_and_preserve_every_byte() {
+    for (file_name, expected_type, expected_size) in FIXTURES {
+        let bytes = fixture(file_name);
+        assert_eq!(
+            bytes.len(),
+            expected_size,
+            "unexpected size for {file_name}"
+        );
+        let raw = RawSysexObject::from_sysex(&bytes).unwrap();
+        assert_eq!(raw.metadata().object_type().unwrap(), expected_type);
+        assert_eq!(raw.bytes(), bytes);
+        assert_eq!(raw.as_sysex().unwrap(), bytes);
+    }
+}
+
+#[test]
+fn typed_objects_decode_and_reencode_without_unknown_byte_loss() {
+    let mut failures = Vec::new();
+    for (file_name, object_type, _) in FIXTURES {
+        if object_type == SysexType::Song {
+            continue;
+        }
+        let bytes = fixture(file_name);
+        let mut project = RytmProject::try_default().unwrap();
+        project.update_from_sysex_response(&bytes).unwrap();
+        let encoded = match object_type {
+            SysexType::Pattern => project.work_buffer().pattern().as_sysex().unwrap(),
+            SysexType::Kit => project.work_buffer().kit().as_sysex().unwrap(),
+            SysexType::Sound => project.work_buffer().sounds()[0].as_sysex().unwrap(),
+            SysexType::Global => project.work_buffer().global().as_sysex().unwrap(),
+            SysexType::Settings => project.settings().as_sysex().unwrap(),
+            SysexType::Song => unreachable!(),
+        };
+        if encoded != bytes {
+            failures.push(format!(
+                "typed round trip changed {file_name}: {}",
+                difference_summary(&bytes, &encoded)
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn song_remains_lossless_before_a_typed_model_exists() {
+    let bytes = fixture("song-work-buffer.syx");
+    let raw = RawSysexObject::from_sysex(&bytes).unwrap();
+    assert_eq!(raw.metadata().object_type().unwrap(), SysexType::Song);
+    assert_eq!(raw.as_sysex().unwrap(), bytes);
+
+    let mut project = RytmProject::try_default().unwrap();
+    let error = project.update_from_sysex_response(&bytes).unwrap_err();
+    assert!(error.to_string().contains("Song"));
+}
+
+#[test]
+fn fixture_manifest_matches_committed_bytes() {
+    let manifest: Value = serde_json::from_slice(&fixture("manifest.json")).unwrap();
+    assert_eq!(manifest["schema"], "rytm-rs-firmware-fixtures.v1");
+    assert_eq!(manifest["codecTargetFirmware"], "1.70");
+    assert!(manifest["observedFirmware"]
+        .as_str()
+        .is_some_and(|s| !s.is_empty()));
+    assert_eq!(manifest["sampleAudioIncluded"], false);
+    assert_eq!(
+        manifest["objects"].as_array().unwrap().len(),
+        FIXTURES.len()
+    );
+
+    for object in manifest["objects"].as_array().unwrap() {
+        let file_name = object["file"].as_str().unwrap();
+        let bytes = fixture(file_name);
+        let raw = RawSysexObject::from_sysex(&bytes).unwrap();
+        assert_eq!(object["bytes"].as_u64().unwrap(), bytes.len() as u64);
+        assert_eq!(object["fingerprint"], fingerprint(&bytes));
+        assert_eq!(
+            object["checksum"].as_u64().unwrap(),
+            u64::from(raw.metadata().chksum)
+        );
+        assert_eq!(
+            object["dataSize"].as_u64().unwrap(),
+            u64::from(raw.metadata().data_size)
+        );
+        assert_eq!(
+            object["sysexType"].as_str().unwrap(),
+            format!("{:?}", raw.metadata().object_type().unwrap()).to_ascii_lowercase()
+        );
+    }
+}
+
+#[test]
+fn checksum_corruption_is_rejected() {
+    let mut bytes = fixture("sound-work-buffer-bd.syx");
+    bytes[20] ^= 1;
+    assert!(RawSysexObject::from_sysex(&bytes).is_err());
+}
+
+fn fixture(file_name: &str) -> Vec<u8> {
+    fs::read(fixture_path().join(file_name)).unwrap()
+}
+
+fn fixture_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(FIXTURE_DIRECTORY)
+}
+
+fn fingerprint(bytes: &[u8]) -> String {
+    let hash = bytes.iter().fold(0xcbf29ce484222325_u64, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
+    });
+    format!("fnv1a64:{hash:016x}")
+}
+
+fn difference_summary(expected: &[u8], actual: &[u8]) -> String {
+    let differences = expected
+        .iter()
+        .zip(actual)
+        .enumerate()
+        .filter(|(_, (left, right))| left != right)
+        .map(|(index, (left, right))| format!("{index}:{left}->{right}"))
+        .collect::<Vec<_>>();
+    let raw_summary = match (
+        RawSysexObject::from_sysex(expected).and_then(|object| object.decoded_bytes()),
+        RawSysexObject::from_sysex(actual).and_then(|object| object.decoded_bytes()),
+    ) {
+        (Ok(expected_raw), Ok(actual_raw)) => {
+            let differences = expected_raw
+                .iter()
+                .zip(actual_raw.iter())
+                .enumerate()
+                .filter(|(_, (left, right))| left != right)
+                .map(|(index, (left, right))| format!("{index}:{left}->{right}"))
+                .collect::<Vec<_>>();
+            format!(
+                "; {} raw differences: {}",
+                differences.len(),
+                differences
+                    .iter()
+                    .take(12)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        }
+        _ => String::new(),
+    };
+    format!(
+        "expected {} bytes, got {}; {} differing bytes; first differences: {}",
+        expected.len(),
+        actual.len(),
+        differences.len(),
+        differences
+            .iter()
+            .take(12)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", "),
+    ) + &raw_summary
+}

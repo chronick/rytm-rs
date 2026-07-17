@@ -1,0 +1,66 @@
+{
+  "capturedAtUnix": 1784258451,
+  "codecTargetFirmware": "1.70",
+  "device": "Analog Rytm MKII",
+  "midiInput": "Elektron Analog Rytm MKII",
+  "midiOutput": "Elektron Analog Rytm MKII",
+  "objects": [
+    {
+      "bytes": 14988,
+      "checksum": 12354,
+      "dataSize": 14978,
+      "file": "pattern-work-buffer.syx",
+      "fingerprint": "fnv1a64:e885a132b6c6c894",
+      "name": "pattern-work-buffer",
+      "sysexType": "pattern"
+    },
+    {
+      "bytes": 2998,
+      "checksum": 11292,
+      "dataSize": 2988,
+      "file": "kit-work-buffer.syx",
+      "fingerprint": "fnv1a64:ffb0d53e006e7260",
+      "name": "kit-work-buffer",
+      "sysexType": "kit"
+    },
+    {
+      "bytes": 201,
+      "checksum": 3884,
+      "dataSize": 191,
+      "file": "sound-work-buffer-bd.syx",
+      "fingerprint": "fnv1a64:341e598b5acced2a",
+      "name": "sound-work-buffer-bd",
+      "sysexType": "sound"
+    },
+    {
+      "bytes": 107,
+      "checksum": 516,
+      "dataSize": 97,
+      "file": "global-work-buffer.syx",
+      "fingerprint": "fnv1a64:b3204473944c9fd9",
+      "name": "global-work-buffer",
+      "sysexType": "global"
+    },
+    {
+      "bytes": 2401,
+      "checksum": 8981,
+      "dataSize": 2391,
+      "file": "settings.syx",
+      "fingerprint": "fnv1a64:5d18d6d55688352c",
+      "name": "settings",
+      "sysexType": "settings"
+    },
+    {
+      "bytes": 1506,
+      "checksum": 1,
+      "dataSize": 1496,
+      "file": "song-work-buffer.syx",
+      "fingerprint": "fnv1a64:680db4445d9bd9c5",
+      "name": "song-work-buffer",
+      "sysexType": "song"
+    }
+  ],
+  "observedFirmware": "unknown-not-reported-by-device-identity",
+  "sampleAudioIncluded": false,
+  "schema": "rytm-rs-firmware-fixtures.v1"
+}
