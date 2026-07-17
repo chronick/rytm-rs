@@ -142,12 +142,9 @@ impl From<&Pattern> for ar_pattern_t {
         let mut tracks: [ar_pattern_track_t; 13] = [ar_pattern_track_t::default(); 13];
 
         for (i, track) in pattern.tracks.iter().enumerate() {
-            if i == 12 {
-                tracks[i] = (&*pattern.fx_track.lock()).into();
-                break;
-            }
             tracks[i] = track.into();
         }
+        tracks[12] = (&*pattern.fx_track.lock()).into();
 
         let bpm = (pattern.bpm * 120.0) as u16;
         Self {

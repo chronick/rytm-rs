@@ -1,6 +1,6 @@
 use crate::{
     error::{ConversionError, ParameterError, RytmError, SysexConversionError},
-    util::{from_s_u16_t, to_s_u16_t_union_b},
+    util::{from_s_u14_t, from_s_u16_t, to_s_u16_t_union_b},
 };
 use rytm_rs_macro::parameter_range;
 use rytm_sys::ar_sysex_meta_t;
@@ -273,8 +273,8 @@ impl From<&ar_sysex_meta_t> for SysexMeta {
             dev_id: meta.dev_id,
             obj_type: meta.obj_type,
             obj_nr: meta.obj_nr,
-            chksum: unsafe { from_s_u16_t(meta.chksum) },
-            data_size: unsafe { from_s_u16_t(meta.data_size) },
+            chksum: unsafe { from_s_u14_t(meta.chksum) },
+            data_size: unsafe { from_s_u14_t(meta.data_size) },
         }
     }
 }

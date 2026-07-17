@@ -17,6 +17,6 @@ pub use crate::{
         sound::types::*,
     },
     query::*,
-    sysex::{AnySysexType, SysexCompatible, SysexType},
+    sysex::{AnySysexType, RawSysexObject, SysexCompatible, SysexType},
     RytmProject,
 };

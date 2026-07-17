@@ -87,6 +87,110 @@ pub trait SysexCompatible {
     fn as_sysex(&self) -> Result<Vec<u8>, RytmError>;
 }
 
+/// A validated `SysEx` response that preserves its original bytes exactly.
+///
+/// This is useful for unsupported object models and firmware fixtures. Construction decodes the
+/// envelope through `libanalogrytm`, validating the size, checksum, and metadata, while
+/// serialization returns the original response without canonicalizing unknown fields.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RawSysexObject {
+    bytes: Vec<u8>,
+    metadata: SysexMeta,
+    sysex_type: SysexType,
+}
+
+impl RawSysexObject {
+    /// Validates and preserves a complete Analog Rytm `SysEx` response.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `SysEx` conversion error when the response is incomplete, has an unsupported type
+    /// or size, or fails the codec checksum validation.
+    pub fn from_sysex(bytes: &[u8]) -> Result<Self, RytmError> {
+        validate_response_trailer(bytes)?;
+        let (_, metadata) = decode_sysex_response_to_raw(bytes)?;
+        let sysex_type = metadata.object_type()?;
+        Ok(Self {
+            bytes: bytes.to_vec(),
+            metadata,
+            sysex_type,
+        })
+    }
+
+    /// Returns the validated response bytes.
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    /// Consumes the object and returns the validated response bytes.
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.bytes
+    }
+
+    /// Returns the unpacked object bytes produced by `libanalogrytm`.
+    ///
+    /// This is primarily useful for diagnosing typed codec round-trip differences without
+    /// conflating them with the `SysEx` 7-bit packing and checksum trailer.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `SysEx` conversion error if the preserved response can no longer be decoded.
+    pub fn decoded_bytes(&self) -> Result<Vec<u8>, RytmError> {
+        decode_sysex_response_to_raw(&self.bytes).map(|(bytes, _)| bytes)
+    }
+
+    /// Returns the metadata decoded from the response envelope.
+    pub const fn metadata(&self) -> SysexMeta {
+        self.metadata
+    }
+}
+
+fn validate_response_trailer(bytes: &[u8]) -> Result<(), RytmError> {
+    if bytes.len() < 15 {
+        return Err(SysexConversionError::ShortRead.into());
+    }
+    if bytes[0] != 0xF0 || bytes[bytes.len() - 1] != 0xF7 {
+        return Err(SysexConversionError::NotASysexMsg.into());
+    }
+    if bytes[1..bytes.len() - 1].iter().any(|byte| *byte >= 0x80) {
+        return Err(SysexConversionError::NotASysexMsg.into());
+    }
+
+    let trailer = bytes.len() - 5;
+    let expected_checksum = (u16::from(bytes[trailer]) << 7) | u16::from(bytes[trailer + 1]);
+    let calculated_checksum = bytes[10..trailer]
+        .iter()
+        .fold(0_u16, |sum, byte| sum.wrapping_add(u16::from(*byte)))
+        & 0x3FFF;
+    if calculated_checksum != expected_checksum {
+        return Err(SysexConversionError::Chksum.into());
+    }
+
+    let encoded_size = (usize::from(bytes[trailer + 2]) << 7) | usize::from(bytes[trailer + 3]);
+    if encoded_size != bytes.len() - 10 {
+        return Err(SysexConversionError::InvalidSize(bytes.len() - 10, encoded_size).into());
+    }
+    Ok(())
+}
+
+impl TryFrom<&[u8]> for RawSysexObject {
+    type Error = RytmError;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Self::from_sysex(bytes)
+    }
+}
+
+impl SysexCompatible for RawSysexObject {
+    fn sysex_type(&self) -> AnySysexType {
+        self.sysex_type.into()
+    }
+
+    fn as_sysex(&self) -> Result<Vec<u8>, RytmError> {
+        Ok(self.bytes.clone())
+    }
+}
+
 // Helper macro to implement the SysexCompatible trait for a given object.
 #[macro_export]
 macro_rules! impl_sysex_compatible {

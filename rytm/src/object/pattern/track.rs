@@ -115,7 +115,7 @@ impl From<&Track> for ar_pattern_track_t {
 
         // Encode flags and speed.
         let mut encoded_flags_and_speed: u8 = 0;
-        encoded_flags_and_speed |= track.speed as u8;
+        encoded_flags_and_speed |= u8::from(track.speed);
         encoded_flags_and_speed |= if track.sends_midi { 0b1000_0000 } else { 0 };
         encoded_flags_and_speed |= track.__maybe_useful_flags_from_flags_and_speed;
 
