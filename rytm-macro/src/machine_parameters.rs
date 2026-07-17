@@ -4,7 +4,7 @@ use syn::{
     parse::{Parse, ParseStream},
     parse_str,
     punctuated::Punctuated,
-    Ident, LitInt, LitStr, Token,
+    Expr, Ident, LitInt, LitStr, Token,
 };
 
 pub struct ParameterArgs(pub Vec<ParameterArg>);
@@ -73,6 +73,64 @@ pub fn generate_getter(parameter: &ParameterArg, struct_name: &Ident) -> proc_ma
             #[doc = #doc_comment_getter]
             pub const fn #getter_fn_name(&self) -> #return_type {
                 self.#param_ident as #return_type
+            }
+        }
+    }
+}
+
+pub fn generate_dynamic_numeric_setter(
+    parameters: &[ParameterArg],
+    struct_name: &Ident,
+) -> proc_macro2::TokenStream {
+    let match_arms = parameters.iter().map(|parameter| {
+        let parameter_name = &parameter.name;
+        let setter_fn_name = format_ident!("set_{}", parameter.name);
+        let (parameter_type, _) = determine_types(&parameter.range);
+        let is_inclusive = parameter.range.contains("..=");
+        let range_parts: Vec<&str> = if is_inclusive {
+            parameter.range.split("..=").collect()
+        } else {
+            parameter.range.split("..").collect()
+        };
+        let is_floating_point = range_parts.iter().any(|part| part.contains('.'));
+        let start = parse_str::<Expr>(range_parts[0]).expect("valid machine parameter range start");
+        let end = parse_str::<Expr>(range_parts[1]).expect("valid machine parameter range end");
+        let range_check = if is_inclusive {
+            quote! { value >= (#start) as f64 && value <= (#end) as f64 }
+        } else {
+            quote! { value >= (#start) as f64 && value < (#end) as f64 }
+        };
+        let integer_check = if is_floating_point {
+            quote! {}
+        } else {
+            quote! { || value.fract() != 0.0 }
+        };
+
+        quote! {
+            #parameter_name => {
+                if !value.is_finite() || !(#range_check) #integer_check {
+                    return Err(RytmError::Parameter(ParameterError::Range {
+                        parameter_name: parameter.to_string(),
+                        value: value.to_string(),
+                    }));
+                }
+                self.#setter_fn_name(value as #parameter_type)?;
+                Ok(true)
+            }
+        }
+    });
+
+    quote! {
+        impl #struct_name {
+            pub(crate) fn try_set_numeric_parameter(
+                &mut self,
+                parameter: &str,
+                value: f64,
+            ) -> Result<bool, RytmError> {
+                match parameter {
+                    #(#match_arms,)*
+                    _ => Ok(false),
+                }
             }
         }
     }

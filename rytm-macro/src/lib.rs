@@ -173,6 +173,7 @@ pub fn machine_parameters(args: TokenStream, input: TokenStream) -> TokenStream 
 
     let apply_to_raw_sound_values_inner =
         args.0.iter().map(generate_apply_to_raw_sound_values_inner);
+    let dynamic_numeric_setter = generate_dynamic_numeric_setter(&args.0, &struct_name);
 
     let result = quote! {
         #input_struct
@@ -182,6 +183,8 @@ pub fn machine_parameters(args: TokenStream, input: TokenStream) -> TokenStream 
                 #(#apply_to_raw_sound_values_inner)*
             }
         }
+
+        #dynamic_numeric_setter
 
         #(#methods)*
     };
