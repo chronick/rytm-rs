@@ -623,7 +623,7 @@ dependencies = [
  "embed-doc-image",
  "midir",
  "parking_lot",
- "rytm-rs-macro 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rytm-rs-macro",
  "rytm-sys",
  "serde",
  "serde-big-array",
@@ -634,17 +634,6 @@ dependencies = [
 [[package]]
 name = "rytm-rs-macro"
 version = "0.2.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.87",
-]
-
-[[package]]
-name = "rytm-rs-macro"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fbe3ddcd78e30275a5563fd59b2f7239272b3c6ffcd49f8ceb861ec8ae0d88b5"
 dependencies = [
  "proc-macro2",
  "quote",

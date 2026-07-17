@@ -214,6 +214,40 @@ impl HhLabParameters {
 }
 
 impl HhLabParameters {
+    pub(crate) fn try_set_numeric_parameter(
+        &mut self,
+        parameter: &str,
+        value: f64,
+    ) -> Result<bool, RytmError> {
+        if !matches!(
+            parameter,
+            "lev" | "osc1" | "dec" | "osc2" | "osc3" | "osc4" | "osc5" | "osc6"
+        ) {
+            return Ok(false);
+        }
+        if !value.is_finite() || value.fract() != 0.0 || !(0.0..=16256.0).contains(&value) {
+            return Err(RytmError::Parameter(ParameterError::Range {
+                parameter_name: parameter.to_string(),
+                value: value.to_string(),
+            }));
+        }
+        let value = value as usize;
+        match parameter {
+            "lev" => self.set_lev(value)?,
+            "osc1" => self.set_osc1(value)?,
+            "dec" => self.set_dec(value)?,
+            "osc2" => self.set_osc2(value)?,
+            "osc3" => self.set_osc3(value)?,
+            "osc4" => self.set_osc4(value)?,
+            "osc5" => self.set_osc5(value)?,
+            "osc6" => self.set_osc6(value)?,
+            _ => unreachable!("known HH Lab parameter was checked above"),
+        }
+        Ok(true)
+    }
+}
+
+impl HhLabParameters {
     /// Sets the parameter lock for the `lev` parameter.
     ///
     /// Range: `0..=127`

@@ -164,6 +164,13 @@ pub enum MachineParameters {
     Unset,
 }
 
+/// A validated value for machine-specific Sound parameters.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MachineParameterValue<'a> {
+    Number(f64),
+    Symbol(&'a str),
+}
+
 impl Default for MachineParameters {
     fn default() -> Self {
         Self::BdHard(BdHardParameters::default())
@@ -213,6 +220,98 @@ impl From<MachineType> for MachineParameters {
 }
 
 impl MachineParameters {
+    /// Sets one machine-specific parameter by its short Elektron parameter name.
+    ///
+    /// Numeric values are range checked by the same generated setters used by the
+    /// typed API. Enum-backed parameters accept their existing symbolic names.
+    pub fn set_parameter(
+        &mut self,
+        parameter: &str,
+        value: MachineParameterValue<'_>,
+    ) -> Result<(), RytmError> {
+        let machine_type = self.machine_type();
+        let handled = match value {
+            MachineParameterValue::Number(value) => {
+                self.try_set_numeric_parameter(parameter, value)?
+            }
+            MachineParameterValue::Symbol(value) => {
+                self.try_set_symbolic_parameter(parameter, value)?
+            }
+        };
+        if handled {
+            return Ok(());
+        }
+
+        Err(RytmError::Parameter(ParameterError::Compatibility {
+            value: format!("{value:?}"),
+            parameter_name: parameter.to_string(),
+            reason: Some(format!(
+                "parameter is unavailable for machine {} or has the wrong value type",
+                <&str>::from(machine_type)
+            )),
+        }))
+    }
+
+    fn try_set_numeric_parameter(
+        &mut self,
+        parameter: &str,
+        value: f64,
+    ) -> Result<bool, RytmError> {
+        match self {
+            Self::BdHard(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::BdClassic(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::SdHard(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::SdClassic(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::RsHard(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::RsClassic(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::CpClassic(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::BtClassic(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::XtClassic(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::ChClassic(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::OhClassic(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::CyClassic(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::CbClassic(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::BdFm(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::SdFm(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::UtNoise(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::UtImpulse(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::ChMetallic(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::OhMetallic(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::CyMetallic(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::CbMetallic(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::BdPlastic(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::BdSilky(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::SdNatural(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::HhBasic(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::CyRide(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::BdSharp(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::SyDualVco(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::SyChip(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::BdAcoustic(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::SdAcoustic(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::SyRaw(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::HhLab(parameters) => parameters.try_set_numeric_parameter(parameter, value),
+            Self::Disable | Self::Unset => Ok(false),
+        }
+    }
+
+    fn try_set_symbolic_parameter(
+        &mut self,
+        parameter: &str,
+        value: &str,
+    ) -> Result<bool, RytmError> {
+        match (self, parameter) {
+            (Self::BdSharp(parameters), "wav") => parameters.set_wav(value.try_into()?),
+            (Self::BdAcoustic(parameters), "wav") => parameters.set_wav(value.try_into()?),
+            (Self::SyRaw(parameters), "wav1") => parameters.set_wav1(value.try_into()?),
+            (Self::SyRaw(parameters), "wav2") => parameters.set_wav2(value.try_into()?),
+            (Self::SyChip(parameters), "wav") => parameters.set_wav(value.try_into()?),
+            (Self::SyChip(parameters), "spd") => parameters.set_spd(value.try_into()?)?,
+            _ => return Ok(false),
+        }
+        Ok(true)
+    }
+
     #[parameter_range(range = "track_index[opt]:0..=11")]
     pub(crate) fn try_from_raw_sound(
         raw_sound: &ar_sound_t,
@@ -492,5 +591,61 @@ impl MachineParameters {
                 // Ignore
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dynamically_sets_generated_numeric_machine_parameters() {
+        let mut parameters = MachineParameters::BdClassic(BdClassicParameters::default());
+        parameters
+            .set_parameter("lev", MachineParameterValue::Number(91.0))
+            .unwrap();
+        parameters
+            .set_parameter("tun", MachineParameterValue::Number(-3.5))
+            .unwrap();
+
+        let MachineParameters::BdClassic(parameters) = parameters else {
+            panic!("expected BD Classic parameters");
+        };
+        assert_eq!(parameters.get_lev(), 91);
+        assert!((parameters.get_tun() - (-3.5)).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn dynamic_machine_parameters_keep_range_and_compatibility_validation() {
+        let mut parameters = MachineParameters::BdClassic(BdClassicParameters::default());
+        assert!(parameters
+            .set_parameter("lev", MachineParameterValue::Number(1.5))
+            .is_err());
+        assert!(parameters
+            .set_parameter("lev", MachineParameterValue::Number(128.0))
+            .is_err());
+        assert!(parameters
+            .set_parameter("not_a_parameter", MachineParameterValue::Number(1.0))
+            .is_err());
+    }
+
+    #[test]
+    fn dynamically_sets_enum_and_manual_machine_parameters() {
+        let mut waveform = MachineParameters::BdSharp(BdSharpParameters::default());
+        waveform
+            .set_parameter("wav", MachineParameterValue::Symbol("trib"))
+            .unwrap();
+        let MachineParameters::BdSharp(waveform) = waveform else {
+            panic!("expected BD Sharp parameters");
+        };
+        assert!(matches!(waveform.get_wav(), BdSharpWaveform::TriB));
+
+        let mut lab = MachineParameters::HhLab(HhLabParameters::default());
+        lab.set_parameter("osc1", MachineParameterValue::Number(4096.0))
+            .unwrap();
+        let MachineParameters::HhLab(lab) = lab else {
+            panic!("expected HH Lab parameters");
+        };
+        assert_eq!(lab.get_osc1(), 4096);
     }
 }
