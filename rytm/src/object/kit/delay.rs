@@ -38,8 +38,7 @@ impl Default for FxDelay {
 impl TryFrom<&ar_kit_t> for FxDelay {
     type Error = ConversionError;
     fn try_from(raw_kit: &ar_kit_t) -> Result<Self, Self::Error> {
-        // map 0..=127 to 0..=198
-        let feedback = (raw_kit.fx_delay_feedback as f32 / 127.0 * 198.0) as u8;
+        let feedback = scale_feedback_from_raw(raw_kit.fx_delay_feedback);
 
         Ok(Self {
             time: raw_kit.fx_delay_time,
@@ -60,8 +59,7 @@ impl TryFrom<&ar_kit_t> for FxDelay {
 
 impl FxDelay {
     pub(crate) fn apply_to_raw_kit(self, raw_kit: &mut ar_kit_t) {
-        // map 0..=198 to 0..=127
-        let feedback = (self.feedback as f32 / 198.0 * 127.0) as u8;
+        let feedback = scale_feedback_to_raw(self.feedback);
 
         raw_kit.fx_delay_time = self.time;
         raw_kit.fx_delay_pingpong = self.ping_pong as u8;
@@ -200,5 +198,25 @@ impl FxDelay {
     /// Range: `0..=127`
     pub const fn volume(&self) -> usize {
         self.volume as usize
+    }
+}
+
+const fn scale_feedback_from_raw(raw: u8) -> u8 {
+    ((raw as u16 * 198 + 63) / 127) as u8
+}
+
+const fn scale_feedback_to_raw(feedback: u8) -> u8 {
+    ((feedback as u16 * 127 + 99) / 198) as u8
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{scale_feedback_from_raw, scale_feedback_to_raw};
+
+    #[test]
+    fn every_delay_feedback_wire_value_round_trips() {
+        for raw in 0..=127 {
+            assert_eq!(scale_feedback_to_raw(scale_feedback_from_raw(raw)), raw);
+        }
     }
 }

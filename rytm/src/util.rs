@@ -70,6 +70,12 @@ pub const unsafe fn from_s_u16_t(value: s_u16_t) -> u16 {
     (msb << 8) | lsb
 }
 
+pub const unsafe fn from_s_u14_t(value: s_u16_t) -> u16 {
+    let msb = value.b.hi as u16;
+    let lsb = value.b.lo as u16;
+    (msb << 7) | lsb
+}
+
 /// Checks if the given machine is compatible for the given track.
 pub fn is_machine_compatible_for_track(track_index: usize, machine: MachineType) -> bool {
     let compatible_machines = unsafe { rytm_sys::ar_sound_compatible_machines };
