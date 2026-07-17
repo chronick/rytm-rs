@@ -229,7 +229,20 @@ impl Kit {
             name,
 
             track_levels,
-            track_retrig_settings: retrig::TrackRetrigMenu::get_default_for_12_tracks(),
+            track_retrig_settings: [
+                retrig::TrackRetrigMenu::try_from_raw(0, raw_kit)?,
+                retrig::TrackRetrigMenu::try_from_raw(1, raw_kit)?,
+                retrig::TrackRetrigMenu::try_from_raw(2, raw_kit)?,
+                retrig::TrackRetrigMenu::try_from_raw(3, raw_kit)?,
+                retrig::TrackRetrigMenu::try_from_raw(4, raw_kit)?,
+                retrig::TrackRetrigMenu::try_from_raw(5, raw_kit)?,
+                retrig::TrackRetrigMenu::try_from_raw(6, raw_kit)?,
+                retrig::TrackRetrigMenu::try_from_raw(7, raw_kit)?,
+                retrig::TrackRetrigMenu::try_from_raw(8, raw_kit)?,
+                retrig::TrackRetrigMenu::try_from_raw(9, raw_kit)?,
+                retrig::TrackRetrigMenu::try_from_raw(10, raw_kit)?,
+                retrig::TrackRetrigMenu::try_from_raw(11, raw_kit)?,
+            ],
             sounds,
 
             fx_delay: raw_kit.try_into()?,
@@ -920,5 +933,31 @@ impl Kit {
         self.sounds_mut()
             .iter_mut()
             .for_each(|sound| sound.set_device_id(device_id));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{sysex::SysexCompatible, RytmProject};
+
+    #[test]
+    fn work_buffer_kit_retrig_settings_survive_sysex_round_trip() {
+        let mut kit = Kit::work_buffer_default();
+        let retrig = kit.track_retrig_settings_mut(0).unwrap();
+        retrig.set_velocity_curve(23).unwrap();
+        retrig.set_always_on(true);
+
+        let bytes = kit.as_sysex().unwrap();
+        let mut project = RytmProject::try_default().unwrap();
+        project.update_from_sysex_response(&bytes).unwrap();
+        let decoded = project
+            .work_buffer()
+            .kit()
+            .track_retrig_settings(0)
+            .unwrap();
+
+        assert_eq!(decoded.velocity_curve(), 23);
+        assert!(decoded.always_on());
     }
 }
