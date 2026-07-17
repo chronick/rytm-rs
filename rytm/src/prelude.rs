@@ -5,7 +5,7 @@
 pub use crate::{
     object::{
         global::types::*,
-        kit::types::*,
+        kit::{scene_performance::*, types::*},
         pattern::{
             track::{
                 trig::{types::*, HoldsTrigFlags},

@@ -22,17 +22,24 @@ pub mod lfo;
 pub mod retrig;
 /// Holds the structure to represent reverb fx parameters.
 pub mod reverb;
+/// Holds lossless typed Scene and Performance definitions.
+pub mod scene_performance;
 /// Holds types relevant to the kit object.
 pub mod types;
 pub(crate) mod unknown;
 
 use self::{
-    comp::FxCompressor, delay::FxDelay, dist::FxDistortion, lfo::FxLfo, reverb::FxReverb,
-    types::ControlInModTarget, unknown::KitUnknown,
+    comp::FxCompressor,
+    delay::FxDelay,
+    dist::FxDistortion,
+    lfo::FxLfo,
+    reverb::FxReverb,
+    scene_performance::{PerformanceDefinitions, SceneDefinitions},
+    types::ControlInModTarget,
+    unknown::KitUnknown,
 };
 use super::pattern::plock::ParameterLockPool;
 use crate::{
-    defaults::{default_perf_ctl_array, default_scene_ctl_array},
     error::{ParameterError, RytmError, SysexConversionError},
     impl_sysex_compatible,
     object::types::ObjectName,
@@ -48,7 +55,6 @@ use parking_lot::Mutex;
 use rytm_rs_macro::parameter_range;
 use rytm_sys::{ar_kit_raw_to_syx, ar_kit_t, ar_sysex_meta_t};
 use serde::{Deserialize, Serialize};
-use serde_big_array::BigArray;
 use std::sync::Arc;
 
 impl_sysex_compatible!(
@@ -109,21 +115,13 @@ pub struct Kit {
     control_in_2_mod_amt_3: i8,
     control_in_2_mod_amt_4: i8,
 
-    // Currently these are out of my interest.
-    // Maybe in the feature we can add support for these.
-    //
-    // ---- TODO: ----
     #[derivative(Debug = "ignore")]
-    #[serde(with = "BigArray")]
-    pub(crate) perf_ctl: [u8; 48 * 4], /* @0x0842..0x0901 */
+    performance_definitions: PerformanceDefinitions, /* @0x0842..0x0901 */
     #[derivative(Debug = "ignore")]
-    #[serde(with = "BigArray")]
-    pub(crate) scene_ctl: [u8; 48 * 4], /* @0x0917..0x09D6 */
-    // 0..=11 device 0..=11
+    scene_definitions: SceneDefinitions, /* @0x0917..0x09D6 */
+    // This is device-observed state. Definition mutators never change it.
     #[derivative(Debug = "ignore")]
     pub(crate) current_scene_id: u8, /* @0x09D8 (0..11) */
-    // ----------------
-    //
     #[derivative(Debug = "ignore")]
     pub(crate) __unknown: KitUnknown,
 }
@@ -134,8 +132,8 @@ impl From<&Kit> for ar_kit_t {
             // Version
             __unknown_arr1: break_u32_into_u8_array_be(kit.version),
             name: kit.name.copy_inner(),
-            perf_ctl: kit.perf_ctl,
-            scene_ctl: kit.scene_ctl,
+            perf_ctl: kit.performance_definitions.raw(),
+            scene_ctl: kit.scene_definitions.raw(),
             current_scene_id: kit.current_scene_id,
 
             ctrl_in_mod_1_target_1: kit.control_in_1_mod_target_1.into(),
@@ -251,8 +249,8 @@ impl Kit {
             fx_compressor: raw_kit.try_into()?,
             fx_lfo: raw_kit.try_into()?,
 
-            perf_ctl: raw_kit.perf_ctl,
-            scene_ctl: raw_kit.scene_ctl,
+            performance_definitions: PerformanceDefinitions::from_raw(raw_kit.perf_ctl),
+            scene_definitions: SceneDefinitions::from_raw(raw_kit.scene_ctl),
             current_scene_id: raw_kit.current_scene_id,
 
             control_in_1_mod_target_1: raw_kit.ctrl_in_mod_1_target_1.try_into()?,
@@ -290,8 +288,8 @@ impl Kit {
         self.fx_reverb = object.fx_reverb;
         self.fx_compressor = object.fx_compressor;
         self.fx_lfo = object.fx_lfo;
-        self.perf_ctl = object.perf_ctl;
-        self.scene_ctl = object.scene_ctl;
+        self.performance_definitions = object.performance_definitions.clone();
+        self.scene_definitions = object.scene_definitions.clone();
         self.current_scene_id = object.current_scene_id;
         self.control_in_1_mod_target_1 = object.control_in_1_mod_target_1;
         self.control_in_1_mod_target_2 = object.control_in_1_mod_target_2;
@@ -380,8 +378,8 @@ impl Kit {
             fx_compressor: FxCompressor::default(),
             fx_lfo: FxLfo::default(),
 
-            perf_ctl: default_perf_ctl_array(),
-            scene_ctl: default_scene_ctl_array(),
+            performance_definitions: PerformanceDefinitions::default(),
+            scene_definitions: SceneDefinitions::default(),
             current_scene_id: 0,
 
             control_in_1_mod_target_1: ControlInModTarget::default(),
@@ -448,8 +446,8 @@ impl Kit {
             fx_compressor: FxCompressor::default(),
             fx_lfo: FxLfo::default(),
 
-            perf_ctl: default_perf_ctl_array(),
-            scene_ctl: default_scene_ctl_array(),
+            performance_definitions: PerformanceDefinitions::default(),
+            scene_definitions: SceneDefinitions::default(),
             current_scene_id: 0,
 
             control_in_1_mod_target_1: ControlInModTarget::default(),
@@ -499,6 +497,43 @@ impl Kit {
     /// Returns the sounds assigned to the kit in the order of the tracks mutably.
     pub fn sounds_mut(&mut self) -> &mut [Sound] {
         &mut self.sounds
+    }
+
+    /// Returns all stored Performance macro definitions.
+    pub const fn performance_definitions(&self) -> &PerformanceDefinitions {
+        &self.performance_definitions
+    }
+
+    /// Returns all stored Performance macro definitions mutably.
+    pub fn performance_definitions_mut(&mut self) -> &mut PerformanceDefinitions {
+        &mut self.performance_definitions
+    }
+
+    /// Returns all stored Scene definitions.
+    pub const fn scene_definitions(&self) -> &SceneDefinitions {
+        &self.scene_definitions
+    }
+
+    /// Returns all stored Scene definitions mutably.
+    pub fn scene_definitions_mut(&mut self) -> &mut SceneDefinitions {
+        &mut self.scene_definitions
+    }
+
+    /// Returns the device-observed current Scene ID when it is in the known range.
+    ///
+    /// Definition writes do not change this value. Realtime Scene activation is a separate
+    /// operation outside the Kit definition codec.
+    pub const fn current_scene_id(&self) -> Option<usize> {
+        if self.current_scene_id < 12 {
+            Some(self.current_scene_id as usize)
+        } else {
+            None
+        }
+    }
+
+    /// Returns the current Scene byte without interpreting unknown firmware values.
+    pub const fn current_scene_id_raw(&self) -> u8 {
+        self.current_scene_id
     }
 
     /// Sets the level of a track.

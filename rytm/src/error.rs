@@ -120,6 +120,8 @@ pub enum RytmError {
 
     #[error("Parameter lock memory full.")]
     ParameterLockMemoryFull,
+    #[error("Scene and Performance definition memory full.")]
+    SceneOrPerformanceMemoryFull,
     #[error("Parameter lock pool is not set for this trig thus it is not connected to a pattern and orphan. This function can not be called on an orphan trig.")]
     OrphanTrig,
 }
