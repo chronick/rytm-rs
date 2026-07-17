@@ -54,10 +54,29 @@ Omit `--observed-firmware` when the version has not been verified on the device.
 Pattern, Kit, Sound, Global, Settings, and raw Song objects only. They must never include personal
 sample audio, project backups, or unrelated user data.
 
+Scene and Performance codec certification is query-only unless --execute is present:
+
+    cargo run -p rytm-rs --example certify_macro_codecs -- \
+      rytm/tests/fixtures/mkii-connected-YYYY-MM-DD \
+      --observed-firmware <version>
+
+    cargo run -p rytm-rs --example certify_macro_codecs -- \
+      rytm/tests/fixtures/mkii-connected-YYYY-MM-DD \
+      --observed-firmware <version> \
+      --execute
+
+The execute path snapshots the work-buffer Kit, writes controlled Scene and Performance
+definitions, verifies typed readback, and restores the exact baseline. It reports an emergency
+rollback failure separately. Definition writes never activate a Scene.
+
 Run before publishing a fork revision:
 
-```sh
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace
-```
+    cargo fmt --all -- --check
+    cargo test -p rytm-rs --lib
+    cargo test -p rytm-rs --test firmware_fixtures
+    cargo test -p rytm-rs-macro
+
+The reverse_engineering.rs test target is an interactive hardware laboratory, not an unattended
+workspace test. Run its individual procedures only while intentionally operating a connected
+device. Strict Clippy status is tracked separately from codec milestones because the upstream
+crate currently emits warnings under newer Rust toolchains.

@@ -57,6 +57,92 @@ fn typed_objects_decode_and_reencode_without_unknown_byte_loss() {
 }
 
 #[test]
+fn typed_scene_and_performance_macros_match_hardware_readback() {
+    let bytes = fixture("macros-defined-kit.syx");
+    let raw = RawSysexObject::from_sysex(&bytes).unwrap();
+    assert_eq!(raw.metadata().object_type().unwrap(), SysexType::Kit);
+
+    let mut project = RytmProject::try_default().unwrap();
+    project.update_from_sysex_response(&bytes).unwrap();
+    let kit = project.work_buffer().kit();
+    assert_eq!(kit.current_scene_id(), None);
+    assert_eq!(kit.current_scene_id_raw(), 0xFF);
+
+    let scene_zero = kit.scene_definitions().definition(0).unwrap();
+    assert_eq!(scene_zero.locks().len(), 1);
+    assert_eq!(
+        scene_lock_tuple(scene_zero.locks()[0]),
+        (MacroTrack::Voice(0), 8, 65)
+    );
+    let scene_one = kit.scene_definitions().definition(1).unwrap();
+    assert_eq!(
+        scene_one
+            .locks()
+            .iter()
+            .copied()
+            .map(scene_lock_tuple)
+            .collect::<Vec<_>>(),
+        [(MacroTrack::Voice(1), 20, 96), (MacroTrack::Fx, 3, 80),]
+    );
+
+    let performance_zero = kit.performance_definitions().definition(0).unwrap();
+    assert_eq!(performance_zero.locks().len(), 1);
+    assert_eq!(
+        performance_lock_tuple(performance_zero.locks()[0]),
+        (MacroTrack::Voice(0), 8, 12)
+    );
+    let performance_one = kit.performance_definitions().definition(1).unwrap();
+    assert_eq!(
+        performance_one
+            .locks()
+            .iter()
+            .copied()
+            .map(performance_lock_tuple)
+            .collect::<Vec<_>>(),
+        [(MacroTrack::Voice(1), 30, -32), (MacroTrack::Fx, 11, 24),]
+    );
+
+    assert_eq!(kit.as_sysex().unwrap(), bytes);
+    assert_eq!(
+        fixture("macros-restored-kit.syx"),
+        fixture("macros-baseline-kit.syx")
+    );
+
+    let report: Value = serde_json::from_slice(&fixture("macros-certification.json")).unwrap();
+    assert_eq!(report["schema"], "rytm-rs-macro-certification.v1");
+    assert_eq!(report["status"], "write-readback-rollback-verified");
+    assert_eq!(report["observedFirmware"], "1.72");
+    assert_eq!(report["baselineFingerprint"], report["restoredFingerprint"]);
+}
+
+#[test]
+fn macro_definition_fixture_preserves_unrelated_kit_bytes() {
+    const PERFORMANCE_CONTROL_BYTES: std::ops::Range<usize> = 0x0842..0x0902;
+    const SCENE_CONTROL_BYTES: std::ops::Range<usize> = 0x0917..0x09D7;
+
+    let baseline = RawSysexObject::from_sysex(&fixture("macros-baseline-kit.syx"))
+        .unwrap()
+        .decoded_bytes()
+        .unwrap();
+    let defined = RawSysexObject::from_sysex(&fixture("macros-defined-kit.syx"))
+        .unwrap()
+        .decoded_bytes()
+        .unwrap();
+    assert_eq!(baseline.len(), defined.len());
+
+    let changed_offsets = baseline
+        .iter()
+        .zip(&defined)
+        .enumerate()
+        .filter_map(|(offset, (before, after))| (before != after).then_some(offset))
+        .collect::<Vec<_>>();
+    assert!(!changed_offsets.is_empty());
+    assert!(changed_offsets.iter().all(|offset| {
+        PERFORMANCE_CONTROL_BYTES.contains(offset) || SCENE_CONTROL_BYTES.contains(offset)
+    }));
+}
+
+#[test]
 fn song_remains_lossless_before_a_typed_model_exists() {
     let bytes = fixture("song-work-buffer.syx");
     let raw = RawSysexObject::from_sysex(&bytes).unwrap();
@@ -171,4 +257,12 @@ fn difference_summary(expected: &[u8], actual: &[u8]) -> String {
             .collect::<Vec<_>>()
             .join(", "),
     ) + &raw_summary
+}
+
+fn scene_lock_tuple(lock: SceneLock) -> (MacroTrack, u8, u8) {
+    (lock.track(), lock.parameter().raw_id(), lock.value())
+}
+
+fn performance_lock_tuple(lock: PerformanceLock) -> (MacroTrack, u8, i8) {
+    (lock.track(), lock.parameter().raw_id(), lock.depth())
 }
