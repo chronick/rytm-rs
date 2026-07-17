@@ -4,6 +4,11 @@
 
 # rytm-rs
 
+> This branch is maintained by the Analog Rytm agent bridge project. It keeps device codecs and
+> generally reusable protocol fixes in this standalone fork while bridge scheduling, MCP tools,
+> transport policy, and audio capture remain in the bridge repository. See
+> [the maintained-fork policy](docs/MAINTAINED_FORK.md).
+
 More than safe rust abstractions over [rytm-sys](https://github.com/alisomay/rytm-sys), an unofficial SDK for writing software for Analog Rytm running on firmware 1.70.
 
 On top of `CC` and `NRPN` messages, Rytm also accepts sysex messages which are undocumented and not officially supported by Elektron.
