@@ -10,11 +10,13 @@ Captured read-only over CoreMIDI from `Elektron Analog Rytm MKII` on 2026-07-17.
 - Envelope validation: passed for all six objects, including framing, 7-bit data, encoded size, and
   checksum.
 - Raw decode and re-encode: byte-exact for all six objects.
-- Typed decode and re-encode: byte-exact for Pattern, Kit, Sound, Global, and Settings.
+- Typed decode and re-encode: byte-exact for all six objects, including Song.
 - `kit-work-buffer-macros.syx`: the same work-buffer Kit after controlled Scene and Performance
   definitions (one-lock and multi-track/multi-page) were written on the device. Typed readback
   matches the definitions written and only the two macro regions differ from `kit-work-buffer.syx`.
-- Song: byte-exact through `RawSysexObject`; typed Song decoding remains explicitly unsupported.
+- `song-work-buffer-rows.syx`: the work-buffer Song after a controlled name, two rows, a pattern
+  chain, repeats and 12-track mute masks were written on the device; typed readback matches what
+  was written.
 
 Reproduce the verification with:
 
@@ -22,5 +24,5 @@ Reproduce the verification with:
 cargo test -p rytm-rs --test firmware_fixtures
 ```
 
-The binary fixtures are protocol evidence only. Regenerate them when
-testing a verified firmware version or when an upstream codec change affects object serialization.
+The binary fixtures are protocol evidence only. Regenerate them when testing a verified firmware
+version or when an upstream codec change affects object serialization.

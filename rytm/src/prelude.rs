@@ -14,6 +14,7 @@ pub use crate::{
             types::*,
         },
         settings::types::*,
+        song::{Song, SongPattern, SongRow},
         sound::types::*,
     },
     query::*,

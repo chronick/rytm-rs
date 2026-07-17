@@ -37,6 +37,8 @@ pub const KIT_RAW_SIZE: usize = std::mem::size_of::<ar_kit_t>();
 pub const SOUND_RAW_SIZE: usize = std::mem::size_of::<ar_sound_t>();
 pub const SETTINGS_RAW_SIZE: usize = std::mem::size_of::<ar_settings_t>();
 pub const GLOBAL_RAW_SIZE: usize = std::mem::size_of::<ar_global_t>();
+/// Decoded Song object size (1,304 bytes), confirmed against a firmware 1.72 device dump.
+pub const SONG_RAW_SIZE: usize = 1304;
 
 /// Meta type for sysex messages.
 ///
@@ -265,8 +267,7 @@ pub fn decode_sysex_response_to_raw(response: &[u8]) -> Result<(Vec<u8>, SysexMe
         SysexType::Sound => (SOUND_SYSEX_SIZE, SOUND_RAW_SIZE),
         SysexType::Settings => (SETTINGS_SYSEX_SIZE, SETTINGS_RAW_SIZE),
         SysexType::Global => (GLOBAL_SYSEX_SIZE, GLOBAL_RAW_SIZE),
-        // Song raw size is guessed for now.
-        SysexType::Song => (SONG_SYSEX_SIZE, 1024 * 16),
+        SysexType::Song => (SONG_SYSEX_SIZE, SONG_RAW_SIZE),
     };
 
     // Check for completeness.
@@ -309,5 +310,51 @@ pub fn decode_sysex_response_to_raw(response: &[u8]) -> Result<(Vec<u8>, SysexMe
         }
     }
 
+    dst_buf.truncate(dst_buf_size as usize);
+
     Ok((dst_buf, SysexMeta::from(&meta)))
+}
+
+/// Encodes an already-decoded object into a complete `SysEx` message using `libanalogrytm`.
+///
+/// This is the inverse of [`decode_sysex_response_to_raw`] for raw-backed objects such as
+/// [`crate::object::Song`]: `raw` is the decoded object and `meta` describes its type, index and
+/// device ID.
+///
+/// # Errors
+///
+/// Returns a `SysEx` conversion error when `raw` is larger than the codec can address or when
+/// `libanalogrytm` rejects the object.
+pub fn encode_raw_to_sysex(raw: &[u8], meta: SysexMeta) -> Result<Vec<u8>, RytmError> {
+    let raw_size = u32::try_from(raw.len())
+        .map_err(|_| SysexConversionError::InvalidSize(u32::MAX as usize, raw.len()))?;
+    let meta: rytm_sys::ar_sysex_meta_t = meta.into();
+    let mut encoded_size = 0_u32;
+    let first_result = unsafe {
+        rytm_sys::ar_raw_to_sysex(
+            std::ptr::null_mut(),
+            raw.as_ptr(),
+            raw_size,
+            std::ptr::from_mut(&mut encoded_size),
+            std::ptr::from_ref(&meta),
+        )
+    } as u8;
+    if first_result != 0 {
+        return Err(SysexConversionError::from(first_result).into());
+    }
+
+    let mut encoded = vec![0; encoded_size as usize];
+    let second_result = unsafe {
+        rytm_sys::ar_raw_to_sysex(
+            encoded.as_mut_ptr(),
+            raw.as_ptr(),
+            raw_size,
+            std::ptr::null_mut(),
+            std::ptr::from_ref(&meta),
+        )
+    } as u8;
+    if second_result != 0 {
+        return Err(SysexConversionError::from(second_result).into());
+    }
+    Ok(encoded)
 }

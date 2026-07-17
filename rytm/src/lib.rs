@@ -30,7 +30,7 @@
 //! - The Rytm device project defaults are represented in all the struct `Default` implementations.
 //! - Sysex encoding and decoding is completely abstracted away. Update the project with a single method call.
 //! - Convert parts of the project to sysex with one method call and send it to the device with your choice of transport.
-//! - Separate query types provided for [`Pattern`](crate::object::Pattern), [`Kit`](crate::object::Kit), [`Sound`](crate::object::Sound), [`Settings`](crate::object::Settings) and [`Global`](crate::object::Global) types which covers the entire Rytm project parameters except songs.
+//! - Separate query types provided for [`Pattern`](crate::object::Pattern), [`Kit`](crate::object::Kit), [`Sound`](crate::object::Sound), [`Settings`](crate::object::Settings), [`Global`](crate::object::Global) and [`Song`](crate::object::Song) types which cover the entire Rytm project.
 //! - Different methods provided for setting, getting, clearing parameter locks exhaustively and available in [`Trig`](crate::object::pattern::track::trig::Trig) struct.
 //! - All 34 machine types are represented including parameter lock setters getters and clearers.
 //! - All getters and setters use the actual range of values on the device not the internal ranges which are used in the sysex protocol.
@@ -224,6 +224,7 @@ use object::{
     kit::Kit,
     pattern::Pattern,
     settings::Settings,
+    song::Song,
     sound::{Sound, SoundType},
 };
 use rytm_sys::{ar_global_t, ar_kit_t, ar_pattern_t, ar_settings_t, ar_sound_t};
@@ -241,7 +242,7 @@ pub struct RytmProject {
     pool_sounds: Vec<Sound>,
     kits: Vec<Kit>,
     globals: Vec<Global>,
-    // TODO: Songs (16)
+    songs: Vec<Song>,
     settings: Settings,
 
     pub(crate) last_queried_pattern_index: Option<usize>,
@@ -279,6 +280,7 @@ impl RytmProject {
             sound.set_device_id(device_id);
         }
         self.work_buffer_mut().global_mut().set_device_id(device_id);
+        self.work_buffer_mut().song_mut().set_device_id(device_id);
 
         // Normal
         for pattern in self.patterns_mut().iter_mut() {
@@ -297,6 +299,10 @@ impl RytmProject {
             global.set_device_id(device_id);
         }
 
+        for song in self.songs_mut().iter_mut() {
+            song.set_device_id(device_id);
+        }
+
         self.settings_mut().set_device_id(device_id);
     }
 
@@ -311,6 +317,8 @@ impl RytmProject {
         patterns.reserve_exact(PATTERN_MAX_COUNT);
         let mut kits = Vec::with_capacity(KIT_MAX_COUNT);
         kits.reserve_exact(KIT_MAX_COUNT);
+        let mut songs = Vec::with_capacity(SONG_MAX_COUNT);
+        songs.reserve_exact(SONG_MAX_COUNT);
 
         // PATTERN_MAX_COUNT == KIT_MAX_COUNT is true.
         for i in 0..PATTERN_MAX_COUNT {
@@ -321,6 +329,10 @@ impl RytmProject {
             kits.push(kit);
         }
 
+        for index in 0..SONG_MAX_COUNT {
+            songs.push(Song::try_default_with_device_id(index, device_id)?);
+        }
+
         // TODO: ALSO FOR THE TRACK AND TRIG TYPES!
 
         Ok(Self {
@@ -329,6 +341,7 @@ impl RytmProject {
             pool_sounds: default_pool_sounds_with_device_id(device_id),
             kits,
             globals: default_globals_with_device_id(device_id),
+            songs,
             settings: Settings::try_default_with_device_id(device_id)?,
 
             last_queried_pattern_index: None,
@@ -506,8 +519,20 @@ impl RytmProject {
                 Ok(())
             }
 
-            // TODO: Implement Song
-            SysexType::Song => Err(SysexConversionError::Unimplemented("Song".to_owned()).into()),
+            SysexType::Song => {
+                let song = Song::try_from_raw(meta, &raw)?;
+                if meta.is_targeting_work_buffer() {
+                    self.work_buffer.song = song;
+                    return Ok(());
+                }
+
+                let index = meta.get_normalized_object_index();
+                if index >= SONG_MAX_COUNT {
+                    return Err(SysexConversionError::InvalidObjNr.into());
+                }
+                self.songs[index] = song;
+                Ok(())
+            }
         }
     }
 
@@ -537,6 +562,13 @@ impl RytmProject {
     /// Total of 4 global slots.
     pub fn globals(&self) -> &[Global] {
         &self.globals
+    }
+
+    /// Get all stored Songs.
+    ///
+    /// Total of 16 Songs.
+    pub fn songs(&self) -> &[Song] {
+        &self.songs
     }
 
     /// Get the settings.
@@ -572,6 +604,13 @@ impl RytmProject {
         &mut self.globals
     }
 
+    /// Get all stored Songs mutably.
+    ///
+    /// Total of 16 Songs.
+    pub fn songs_mut(&mut self) -> &mut [Song] {
+        &mut self.songs
+    }
+
     /// Get the settings mutably.
     pub fn settings_mut(&mut self) -> &mut Settings {
         &mut self.settings
@@ -597,7 +636,7 @@ pub struct RytmProjectWorkBuffer {
     kit: Kit,
     sounds: Vec<Sound>,
     global: Global,
-    // TODO: Work buffer song
+    song: Song,
 }
 
 impl RytmProjectWorkBuffer {
@@ -620,6 +659,7 @@ impl RytmProjectWorkBuffer {
             kit,
             sounds: default_work_buffer_sounds_with_device_id(device_id),
             global: Global::work_buffer_default_with_device_id(device_id),
+            song: Song::work_buffer_default_with_device_id(device_id),
         })
     }
 
@@ -645,6 +685,11 @@ impl RytmProjectWorkBuffer {
         &self.global
     }
 
+    /// Get the Song in the work buffer.
+    pub const fn song(&self) -> &Song {
+        &self.song
+    }
+
     /// Get the pattern in the work buffer mutably.
     pub fn pattern_mut(&mut self) -> &mut Pattern {
         &mut self.pattern
@@ -665,5 +710,10 @@ impl RytmProjectWorkBuffer {
     /// Get the global in the work buffer mutably.
     pub fn global_mut(&mut self) -> &mut Global {
         &mut self.global
+    }
+
+    /// Get the Song in the work buffer mutably.
+    pub fn song_mut(&mut self) -> &mut Song {
+        &mut self.song
     }
 }

@@ -8,7 +8,7 @@ use rytm_rs_macro::parameter_range;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// A query to retrieve a song object from rytm.
 ///
-/// Currently the song object is not supported by rytm-rs.
+/// Song responses decode into [`crate::object::song::Song`].
 pub struct SongQuery {
     /// Song index or track index if targeting work buffer
     object_number: usize,
