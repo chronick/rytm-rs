@@ -6,6 +6,8 @@ use rytm_rs_macro::parameter_range;
 use rytm_sys::ar_global_t;
 use serde::{Deserialize, Serialize};
 
+const ROUTING_TRACK_MASK: u16 = 0x0FFF;
+
 /// Represents the routing menu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Routing {
@@ -32,10 +34,12 @@ impl TryFrom<&ar_global_t> for Routing {
     type Error = RytmError;
     fn try_from(raw_global: &ar_global_t) -> Result<Self, Self::Error> {
         Ok(Self {
-            route_to_main_flags: ((raw_global.route_to_main_msb as u16) << 8)
-                | raw_global.route_to_main_lsb as u16,
-            send_to_fx_flags: ((raw_global.send_to_fx_msb as u16) << 8)
-                | raw_global.send_to_fx_lsb as u16,
+            route_to_main_flags: decode_routing_flags(
+                ((raw_global.route_to_main_msb as u16) << 8) | raw_global.route_to_main_lsb as u16,
+            ),
+            send_to_fx_flags: decode_routing_flags(
+                ((raw_global.send_to_fx_msb as u16) << 8) | raw_global.send_to_fx_lsb as u16,
+            ),
             usb_in: raw_global.usb_in.try_into()?,
             usb_out: raw_global.usb_out.try_into()?,
             usb_to_main_db: raw_global.usb_to_main_db.try_into()?,
@@ -45,10 +49,12 @@ impl TryFrom<&ar_global_t> for Routing {
 
 impl Routing {
     pub(crate) fn apply_to_raw_global(&self, raw_global: &mut ar_global_t) {
-        raw_global.route_to_main_msb = (self.route_to_main_flags >> 8) as u8;
-        raw_global.route_to_main_lsb = self.route_to_main_flags as u8;
-        raw_global.send_to_fx_msb = (self.send_to_fx_flags >> 8) as u8;
-        raw_global.send_to_fx_lsb = self.send_to_fx_flags as u8;
+        let route_to_main_flags = encode_routing_flags(self.route_to_main_flags);
+        raw_global.route_to_main_msb = (route_to_main_flags >> 8) as u8;
+        raw_global.route_to_main_lsb = route_to_main_flags as u8;
+        let send_to_fx_flags = encode_routing_flags(self.send_to_fx_flags);
+        raw_global.send_to_fx_msb = (send_to_fx_flags >> 8) as u8;
+        raw_global.send_to_fx_lsb = send_to_fx_flags as u8;
         raw_global.usb_in = self.usb_in.into();
         raw_global.usb_out = self.usb_out.into();
         raw_global.usb_to_main_db = self.usb_to_main_db.into();
@@ -215,5 +221,33 @@ impl Routing {
     /// Returns the `USB TO MAIN [dB]` value.
     pub const fn usb_to_main_db(&self) -> RoutingUsbToMainDb {
         self.usb_to_main_db
+    }
+}
+
+const fn decode_routing_flags(raw_flags: u16) -> u16 {
+    !raw_flags & ROUTING_TRACK_MASK
+}
+
+const fn encode_routing_flags(routing_flags: u16) -> u16 {
+    !routing_flags & ROUTING_TRACK_MASK
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{decode_routing_flags, encode_routing_flags, ROUTING_TRACK_MASK};
+
+    #[test]
+    fn active_low_routing_flags_preserve_semantic_values() {
+        assert_eq!(decode_routing_flags(0), ROUTING_TRACK_MASK);
+        assert_eq!(encode_routing_flags(ROUTING_TRACK_MASK), 0);
+        assert_eq!(decode_routing_flags(ROUTING_TRACK_MASK), 0);
+        assert_eq!(encode_routing_flags(0), ROUTING_TRACK_MASK);
+
+        for raw_flags in 0..=ROUTING_TRACK_MASK {
+            assert_eq!(
+                encode_routing_flags(decode_routing_flags(raw_flags)),
+                raw_flags
+            );
+        }
     }
 }
