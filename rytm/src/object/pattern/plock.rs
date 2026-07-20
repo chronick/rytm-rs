@@ -519,4 +519,46 @@ mod tests {
         };
         assert!(all_released);
     }
+
+    #[test]
+    fn pattern_clear_all_plocks_purges_every_slot_including_stale_artifacts() {
+        // `Pattern::clear_all_plocks` is the pool-rebuild primitive: a full
+        // sentinel reset of all 72 slots. It must also purge slots no granular
+        // clear path can reach:
+        //   * zero-filled columns left by the previous claim path (0x00 bytes
+        //     baked into claimed slots by the pre-sentinel-fill setters, e.g.
+        //     pan hard-left), and
+        //   * orphaned compound companion slots (track_nr=128, type=128).
+        let mut project = RytmProject::try_default().unwrap();
+        let pattern = &mut project.patterns_mut()[0];
+
+        pattern.tracks()[0].trigs()[0]
+            .plock_set_filter_cutoff(84)
+            .unwrap();
+        pattern.tracks()[8].trigs()[1]
+            .plock_set_amplitude_pan(-20)
+            .unwrap();
+        {
+            let mut pool = pattern.parameter_lock_pool.lock();
+            // Simulate a zero-filled column left by the previous claim path
+            // inside the claimed pan slot.
+            pool.inner[1].data[2] = 0x00;
+            // Simulate an orphaned compound companion slot.
+            pool.inner[5].track_nr = 128;
+            pool.inner[5].plock_type = 128;
+            pool.inner[5].data = [0x00; 64];
+        }
+
+        pattern.clear_all_plocks();
+
+        let pool = pattern.parameter_lock_pool.lock();
+        for (i, slot) in pool.inner.iter().enumerate() {
+            assert_eq!(slot.track_nr, 0xFF, "slot {i} track_nr must be released");
+            assert_eq!(slot.plock_type, 0xFF, "slot {i} type must be released");
+            assert!(
+                slot.data.iter().all(|byte| *byte == 0xFF),
+                "slot {i} data must be fully sentinel-reset"
+            );
+        }
+    }
 }
