@@ -133,12 +133,21 @@ impl Trig {
     /// Sets a parameter lock for the LFO depth.
     ///
     /// Range `-128.0..=127.99`
+    ///
+    /// Stored as a BASIC single-byte lock: `libanalogrytm` `pattern.h` defines
+    /// `AR_PLOCK_TYPE_LFO_DEPTH` (`0x28`) as `depth (0..127)`. The byte is the
+    /// high byte of the former compound scale (`-128.0..=127.99` <-> `0..=32767`),
+    /// so values are byte-identical to what the device stored for patterns
+    /// written through the old two-slot compound path.
+    ///
+    /// Resolution is one byte, so a value reads back rounded to the nearest 2.0.
     #[parameter_range(range = "lfo_depth:-128.0..=127.99")]
     pub fn plock_set_lfo_depth(&self, lfo_depth: f32) -> Result<(), RytmError> {
         if let Some(ref pool) = self.parameter_lock_pool {
-            let depth = scale_f32_to_u16(lfo_depth, -128f32, 127.99f32, 0u16, 32767u16);
+            let depth =
+                (scale_f32_to_u16(lfo_depth, -128f32, 127.99f32, 0u16, 32767u16) >> 8) as u8;
 
-            pool.lock().set_compound_plock(
+            pool.lock().set_basic_plock(
                 self.index,
                 self.track_index as u8,
                 rytm_sys::AR_PLOCK_TYPE_LFO_DEPTH as u8,
@@ -289,9 +298,14 @@ impl Trig {
     /// Gets the parameter lock for the LFO depth.
     ///
     /// Range `-128.0..=127.99`
+    ///
+    /// Reads the BASIC single device byte (see `plock_set_lfo_depth`) and
+    /// decodes it as the high byte of the former compound scale, so values read
+    /// back identically to pool states written through the old compound path
+    /// (whose companion LSB slot is simply ignored here).
     pub fn plock_get_lfo_depth(&self) -> Result<Option<f32>, RytmError> {
         if let Some(ref pool) = self.parameter_lock_pool {
-            let value = pool.lock().get_compound_plock(
+            let value = pool.lock().get_basic_plock(
                 self.index,
                 self.track_index as u8,
                 rytm_sys::AR_PLOCK_TYPE_LFO_DEPTH as u8,
@@ -299,7 +313,11 @@ impl Trig {
 
             if let Some(value) = value {
                 return Ok(Some(scale_u16_to_f32(
-                    value, 0u16, 32767u16, -128f32, 127.99f32,
+                    u16::from(value) << 8,
+                    0u16,
+                    32767u16,
+                    -128f32,
+                    127.99f32,
                 )));
             }
 
@@ -406,10 +424,11 @@ impl Trig {
         Err(OrphanTrig)
     }
 
-    /// Clears the parameter lock for the LFO depth.
+    /// Clears the parameter lock for the LFO depth (a BASIC single-byte lock;
+    /// see `plock_set_lfo_depth`).
     pub fn plock_clear_lfo_depth(&self) -> Result<(), RytmError> {
         if let Some(ref pool) = self.parameter_lock_pool {
-            pool.lock().clear_compound_plock(
+            pool.lock().clear_basic_plock(
                 self.index,
                 self.track_index as u8,
                 rytm_sys::AR_PLOCK_TYPE_LFO_DEPTH as u8,
