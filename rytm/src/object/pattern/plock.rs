@@ -127,6 +127,14 @@ impl ParameterLockPool {
             .find(|plock_seq| plock_seq.track_nr == 0xFF || plock_seq.plock_type == 0xFF)
         {
             // We know at this point that an empty slot is available.
+            //
+            // Initialize EVERY trig column to the 0xFF unset sentinel before
+            // writing the target column. A claimed slot may carry stale bytes
+            // (e.g. 0x00 fill from a device-decoded pool); without this reset
+            // those bytes become live p-lock values for every other trig in the
+            // sequence (hardware-verified: un-locked enabled trigs then play
+            // byte 0x00, which for pan means hard-left).
+            empty_slot.data = [0xFF; 64];
             empty_slot.track_nr = track_index;
             empty_slot.plock_type = plock_type;
             empty_slot.data[trig_index] = value;
@@ -189,10 +197,16 @@ impl ParameterLockPool {
             .find(|(_, plock_seq)| plock_seq.track_nr == 0xFF || plock_seq.plock_type == 0xFF)
         {
             // We know at this point that 2 empty slots are available.
+            //
+            // Initialize both slots' trig columns to the 0xFF unset sentinel
+            // before writing the target column (see `set_basic_plock` for the
+            // stale-byte hazard this prevents).
+            found_empty_slot.data = [0xFF; 64];
             found_empty_slot.track_nr = track_index;
             found_empty_slot.plock_type = plock_type;
             found_empty_slot.data[trig_index] = value_msb;
 
+            self.inner[i + 1].data = [0xFF; 64];
             self.inner[i + 1].track_nr = ADJACENT_PLOCK_SLOT_TRACK_NUMBER_BYTE;
             self.inner[i + 1].plock_type = ADJACENT_PLOCK_SLOT_TYPE_BYTE;
             self.inner[i + 1].data[trig_index] = value_lsb;
@@ -280,11 +294,15 @@ impl ParameterLockPool {
         if let Some(i) = plock_seq_index_which_we_cleared_from {
             let plock = &mut self.inner[i];
             if plock.data.iter_mut().all(|byte| *byte == 0xFF) {
-                // Release both slots.
+                // Release both slots. Reset the companion's data columns to the
+                // unset sentinel as well: only explicitly-cleared columns were
+                // 0xFF'd above, so a device-decoded companion could otherwise
+                // leave stale LSB bytes behind in a slot marked free.
                 plock.track_nr = 0xFF;
                 plock.plock_type = 0xFF;
                 self.inner[i + 1].track_nr = 0xFF;
                 self.inner[i + 1].plock_type = 0xFF;
+                self.inner[i + 1].data = [0xFF; 64];
             }
         }
     }
@@ -345,5 +363,151 @@ impl ParameterLockPool {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::RytmProject;
+
+    /// Dirty a free slot's data buffer to simulate the stale bytes a claimed
+    /// slot can carry (e.g. 0x00 fill decoded from a device pool).
+    fn dirty_free_slot(pool: &mut ParameterLockPool, index: usize) {
+        pool.inner[index].data = [0x00; 64];
+        assert_eq!(pool.inner[index].track_nr, 0xFF, "slot must stay free");
+        assert_eq!(pool.inner[index].plock_type, 0xFF, "slot must stay free");
+    }
+
+    #[test]
+    fn basic_plock_claim_resets_all_columns_to_the_unset_sentinel() {
+        let mut pool = ParameterLockPool::default();
+        dirty_free_slot(&mut pool, 0);
+
+        // CH (track 8) AMP_PAN (0x1E) lock of -20 (byte 44) on trig 5.
+        pool.set_basic_plock(5, 8, 0x1E, 44).unwrap();
+
+        let slot = &pool.inner[0];
+        assert_eq!(slot.track_nr, 8);
+        assert_eq!(slot.plock_type, 0x1E);
+        assert_eq!(slot.data[5], 44);
+        for (i, byte) in slot.data.iter().enumerate() {
+            if i != 5 {
+                assert_eq!(
+                    *byte, 0xFF,
+                    "column {i} must be the unset sentinel, not a live value (0x00 = pan hard-left)"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn compound_plock_claim_resets_all_columns_of_both_slots() {
+        let mut pool = ParameterLockPool::default();
+        dirty_free_slot(&mut pool, 0);
+        dirty_free_slot(&mut pool, 1);
+
+        pool.set_compound_plock(3, 8, 0x28, 0x5900).unwrap();
+
+        let msb = &pool.inner[0];
+        let lsb = &pool.inner[1];
+        assert_eq!((msb.track_nr, msb.plock_type), (8, 0x28));
+        assert_eq!((lsb.track_nr, lsb.plock_type), (128, 128));
+        assert_eq!(msb.data[3], 0x59);
+        assert_eq!(lsb.data[3], 0x00);
+        for i in 0..64 {
+            if i != 3 {
+                assert_eq!(msb.data[i], 0xFF, "MSB column {i} must be sentinel");
+                assert_eq!(lsb.data[i], 0xFF, "LSB column {i} must be sentinel");
+            }
+        }
+    }
+
+    #[test]
+    fn modifying_an_existing_basic_plock_does_not_disturb_other_columns() {
+        let mut pool = ParameterLockPool::default();
+        pool.set_basic_plock(5, 8, 0x1E, 44).unwrap();
+        pool.set_basic_plock(9, 8, 0x1E, 84).unwrap();
+
+        let slot = &pool.inner[0];
+        assert_eq!(slot.data[5], 44);
+        assert_eq!(slot.data[9], 84);
+        for i in 0..64 {
+            if i != 5 && i != 9 {
+                assert_eq!(slot.data[i], 0xFF);
+            }
+        }
+    }
+
+    /// Returns the pattern's pool slots as (track_nr, plock_type, data) after
+    /// running `set` against trig 0 of track 0.
+    fn pool_after<F: Fn(&crate::object::pattern::Trig)>(set: F) -> Vec<(u8, u8, [u8; 64])> {
+        let mut project = RytmProject::try_default().unwrap();
+        let pattern = &mut project.patterns_mut()[0];
+        set(&pattern.tracks()[0].trigs()[0]);
+        let pool = pattern.parameter_lock_pool.lock();
+        pool.inner
+            .iter()
+            .filter(|slot| slot.track_nr != 0xFF || slot.plock_type != 0xFF)
+            .map(|slot| (slot.track_nr, slot.plock_type, slot.data))
+            .collect()
+    }
+
+    #[test]
+    fn lfo_depth_is_a_single_basic_byte_slot_with_the_legacy_msb_value() {
+        // pattern.h: AR_PLOCK_TYPE_LFO_DEPTH (0x28) depth (0..127) — BASIC.
+        // Byte mapping pins (device bytes observed in the B05 hardware capture
+        // for compound-written depths): 50.0 -> 89, 90.0 -> 109.
+        for (depth, expected_byte) in [(50.0f32, 89u8), (90.0, 109), (0.0, 64), (-128.0, 0)] {
+            let slots = pool_after(|trig| trig.plock_set_lfo_depth(depth).unwrap());
+            assert_eq!(slots.len(), 1, "depth {depth}: exactly one slot, no companion");
+            let (track_nr, plock_type, data) = &slots[0];
+            assert_eq!((*track_nr, *plock_type), (0, 0x28));
+            assert_eq!(data[0], expected_byte, "depth {depth} -> byte {expected_byte}");
+        }
+    }
+
+    #[test]
+    fn sample_start_and_end_are_single_basic_byte_slots_position_exact() {
+        // pattern.h: SMP_START (0x0C) / SMP_END (0x0D), 0..120 — BASIC. Integer
+        // positions map to the position byte itself (legacy compound factor 256).
+        let slots = pool_after(|trig| trig.plock_set_sample_start(30.0).unwrap());
+        assert_eq!(slots.len(), 1, "no companion slot");
+        assert_eq!((slots[0].0, slots[0].1, slots[0].2[0]), (0, 0x0C, 30));
+
+        let slots = pool_after(|trig| trig.plock_set_sample_end(120.0).unwrap());
+        assert_eq!(slots.len(), 1, "no companion slot");
+        assert_eq!((slots[0].0, slots[0].1, slots[0].2[0]), (0, 0x0D, 120));
+    }
+
+    #[test]
+    fn basic_routed_params_round_trip_and_clear_through_the_public_api() {
+        let mut project = RytmProject::try_default().unwrap();
+        let pattern = &mut project.patterns_mut()[0];
+        let trig = &pattern.tracks()[0].trigs()[0];
+
+        trig.plock_set_lfo_depth(50.0).unwrap();
+        let depth = trig.plock_get_lfo_depth().unwrap().unwrap();
+        assert!((depth - 50.0).abs() < 0.1, "lfo_depth read back {depth}");
+
+        trig.plock_set_sample_start(30.0).unwrap();
+        assert_eq!(trig.plock_get_sample_start().unwrap(), Some(30.0));
+
+        trig.plock_set_sample_end(120.0).unwrap();
+        assert_eq!(trig.plock_get_sample_end().unwrap(), Some(120.0));
+
+        trig.plock_clear_lfo_depth().unwrap();
+        assert_eq!(trig.plock_get_lfo_depth().unwrap(), None);
+        trig.plock_clear_sample_start().unwrap();
+        assert_eq!(trig.plock_get_sample_start().unwrap(), None);
+        trig.plock_clear_sample_end().unwrap();
+        assert_eq!(trig.plock_get_sample_end().unwrap(), None);
+
+        // All slots released after the clears.
+        let pool = pattern.parameter_lock_pool.lock();
+        assert!(pool
+            .inner
+            .iter()
+            .all(|slot| slot.track_nr == 0xFF && slot.plock_type == 0xFF));
     }
 }

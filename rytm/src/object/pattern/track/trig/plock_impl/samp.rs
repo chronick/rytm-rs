@@ -88,12 +88,19 @@ impl Trig {
     /// Sets a parameter lock for the sample start.
     ///
     /// Range `0.0..=120.0`
+    ///
+    /// Stored as a BASIC single-byte lock: `libanalogrytm` `pattern.h` defines
+    /// `AR_PLOCK_TYPE_SMP_START` (`0x0C`) as `start (0..120)`. The byte is the
+    /// high byte of the legacy compound scale (`0.0..=120.0` <-> `0..=30720`,
+    /// factor 256), so integer positions encode to the position itself and
+    /// values are byte-identical to what the device stored for patterns written
+    /// through the old two-slot compound path.
     #[parameter_range(range = "sample_start:0.0..=120.0")]
     pub fn plock_set_sample_start(&self, sample_start: f32) -> Result<(), RytmError> {
         if let Some(ref pool) = self.parameter_lock_pool {
-            let start = scale_f32_to_u16(sample_start, 0f32, 120.0f32, 0u16, 30720u16);
+            let start = (scale_f32_to_u16(sample_start, 0f32, 120.0f32, 0u16, 30720u16) >> 8) as u8;
 
-            pool.lock().set_compound_plock(
+            pool.lock().set_basic_plock(
                 self.index,
                 self.track_index as u8,
                 rytm_sys::AR_PLOCK_TYPE_SMP_START as u8,
@@ -108,12 +115,15 @@ impl Trig {
     /// Sets a parameter lock for the sample end.
     ///
     /// Range `0.0..=120.0`
+    ///
+    /// Stored as a BASIC single-byte lock (`AR_PLOCK_TYPE_SMP_END`, `0x0D`,
+    /// `end (0..120)`); see `plock_set_sample_start` for the byte mapping.
     #[parameter_range(range = "sample_end:0.0..=120.0")]
     pub fn plock_set_sample_end(&self, sample_end: f32) -> Result<(), RytmError> {
         if let Some(ref pool) = self.parameter_lock_pool {
-            let end = scale_f32_to_u16(sample_end, 0f32, 120.0f32, 0u16, 30720u16);
+            let end = (scale_f32_to_u16(sample_end, 0f32, 120.0f32, 0u16, 30720u16) >> 8) as u8;
 
-            pool.lock().set_compound_plock(
+            pool.lock().set_basic_plock(
                 self.index,
                 self.track_index as u8,
                 rytm_sys::AR_PLOCK_TYPE_SMP_END as u8,
@@ -245,16 +255,27 @@ impl Trig {
     /// Gets the parameter lock for the sample start.
     ///
     /// Range `0.0..=120.0`
+    ///
+    /// Reads the BASIC single device byte (see `plock_set_sample_start`) and
+    /// decodes it as the high byte of the legacy compound scale, so values read
+    /// back identically to pool states written through the old compound path
+    /// (whose companion LSB slot is simply ignored here).
     pub fn plock_get_sample_start(&self) -> Result<Option<f32>, RytmError> {
         if let Some(ref pool) = self.parameter_lock_pool {
-            let value = pool.lock().get_compound_plock(
+            let value = pool.lock().get_basic_plock(
                 self.index,
                 self.track_index as u8,
                 rytm_sys::AR_PLOCK_TYPE_SMP_START as u8,
             );
 
             if let Some(value) = value {
-                return Ok(Some(scale_u16_to_f32(value, 0u16, 30720u16, 0f32, 120f32)));
+                return Ok(Some(scale_u16_to_f32(
+                    u16::from(value) << 8,
+                    0u16,
+                    30720u16,
+                    0f32,
+                    120f32,
+                )));
             }
 
             return Ok(None);
@@ -265,16 +286,24 @@ impl Trig {
     /// Gets the parameter lock for the sample end.
     ///
     /// Range `0.0..=120.0`
+    ///
+    /// Reads the BASIC single device byte; see `plock_get_sample_start`.
     pub fn plock_get_sample_end(&self) -> Result<Option<f32>, RytmError> {
         if let Some(ref pool) = self.parameter_lock_pool {
-            let value = pool.lock().get_compound_plock(
+            let value = pool.lock().get_basic_plock(
                 self.index,
                 self.track_index as u8,
                 rytm_sys::AR_PLOCK_TYPE_SMP_END as u8,
             );
 
             if let Some(value) = value {
-                return Ok(Some(scale_u16_to_f32(value, 0u16, 30720u16, 0f32, 120f32)));
+                return Ok(Some(scale_u16_to_f32(
+                    u16::from(value) << 8,
+                    0u16,
+                    30720u16,
+                    0f32,
+                    120f32,
+                )));
             }
 
             return Ok(None);
@@ -376,10 +405,11 @@ impl Trig {
         Err(OrphanTrig)
     }
 
-    /// Clears the parameter lock for the sample start.
+    /// Clears the parameter lock for the sample start (a BASIC single-byte
+    /// lock; see `plock_set_sample_start`).
     pub fn plock_clear_sample_start(&self) -> Result<(), RytmError> {
         if let Some(ref pool) = self.parameter_lock_pool {
-            pool.lock().clear_compound_plock(
+            pool.lock().clear_basic_plock(
                 self.index,
                 self.track_index as u8,
                 rytm_sys::AR_PLOCK_TYPE_SMP_START as u8,
@@ -390,10 +420,11 @@ impl Trig {
         Err(OrphanTrig)
     }
 
-    /// Clears the parameter lock for the sample end.
+    /// Clears the parameter lock for the sample end (a BASIC single-byte lock;
+    /// see `plock_set_sample_end`).
     pub fn plock_clear_sample_end(&self) -> Result<(), RytmError> {
         if let Some(ref pool) = self.parameter_lock_pool {
-            pool.lock().clear_compound_plock(
+            pool.lock().clear_basic_plock(
                 self.index,
                 self.track_index as u8,
                 rytm_sys::AR_PLOCK_TYPE_SMP_END as u8,
