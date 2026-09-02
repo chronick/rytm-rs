@@ -5,7 +5,7 @@ This repository is the maintained `rytm-rs` fork used by
 
 ## Repository roles
 
-- `origin`: `https://github.com/chronick/rytm-rs.git`, the writable fork.
+- `origin`: `https://github.com/algonormative/rytm-rs.git`, the writable fork.
 - `upstream`: `https://github.com/alisomay/rytm-rs.git`, the original project.
 - `agent-control`: the integration branch pinned by the bridge at an immutable commit.
 
