@@ -4,6 +4,11 @@
 
 # rytm-rs
 
+> This is the maintained fork used by the Analog Rytm agent bridge project. Branch
+> `upstream-codecs` is what has been offered upstream as a pull request; `agent-control` is that
+> branch plus [the maintained-fork policy](docs/MAINTAINED_FORK.md). Bridge scheduling, MCP tools,
+> transport policy, audio capture and codec certification tooling live in the bridge repository.
+
 More than safe rust abstractions over [rytm-sys](https://github.com/alisomay/rytm-sys), an unofficial SDK for writing software for Analog Rytm running on firmware 1.70.
 
 On top of `CC` and `NRPN` messages, Rytm also accepts sysex messages which are undocumented and not officially supported by Elektron.
